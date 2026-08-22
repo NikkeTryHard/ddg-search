@@ -90,6 +90,15 @@ def _transport_from_exc(stage: str, exc: Exception, *, http_completed: bool = Fa
     return RemoteTransportError(stage, detail, http_completed=http_completed)
 
 
+def _checked(response: httpx.Response, stage: str) -> httpx.Response:
+    """raise_for_status, translated into the transport-error taxonomy."""
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        raise _transport_from_exc(stage, exc, http_completed=True) from exc
+    return response
+
+
 async def call_remote_tool(url: str, tool_name: str, arguments: dict[str, object], timeout_ms: int) -> RemoteToolResult:
     if not url:
         raise RemoteTransportError("config", "remote backend URL is empty", http_completed=False)
@@ -116,14 +125,7 @@ async def call_remote_tool(url: str, tool_name: str, arguments: dict[str, object
     except Exception as exc:
         raise _transport_from_exc("initialize", exc, http_completed=False) from exc
 
-    try:
-        init_response.raise_for_status()
-    except Exception as exc:
-        raise _transport_from_exc(
-            "initialize",
-            exc,
-            http_completed=True,
-        ) from exc
+    _checked(init_response, "initialize")
 
     session_id = init_response.headers.get("mcp-session-id")
     if not session_id:
@@ -143,10 +145,7 @@ async def call_remote_tool(url: str, tool_name: str, arguments: dict[str, object
         raise _transport_from_exc("initialized-notify", exc, http_completed=False) from exc
 
     if notify_response.status_code not in (200, 202):
-        try:
-            notify_response.raise_for_status()
-        except Exception as exc:
-            raise _transport_from_exc("initialized-notify", exc, http_completed=True) from exc
+        _checked(notify_response, "initialized-notify")
 
     remaining = max(1.0, (timeout_ms / 1000.0) - (time.monotonic() - started))
     try:
@@ -164,10 +163,7 @@ async def call_remote_tool(url: str, tool_name: str, arguments: dict[str, object
     except Exception as exc:
         raise _transport_from_exc("tools/call", exc, http_completed=False) from exc
 
-    try:
-        response.raise_for_status()
-    except Exception as exc:
-        raise _transport_from_exc("tools/call", exc, http_completed=True) from exc
+    _checked(response, "tools/call")
 
     messages = _parse_sse_messages(response.text)
     for message in messages:

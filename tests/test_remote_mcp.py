@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -62,7 +63,7 @@ def test_call_remote_tool_returns_text():
     tool = sse({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "5 results:\n1. T"}]}})
     server, url = make_server({"/": INIT_RESULT + tool})
     try:
-        result = __import__("asyncio").run(call_remote_tool(url, "search", {"query": "q"}, 5000))
+        result = asyncio.run(call_remote_tool(url, "search", {"query": "q"}, 5000))
         assert result.text == "5 results:\n1. T"
     finally:
         server.shutdown()
@@ -73,7 +74,7 @@ def test_call_remote_tool_raises_on_is_error():
     server, url = make_server({"/err": INIT_RESULT + tool})
     try:
         with pytest.raises(RemoteToolError, match="remote tool isError: bad"):
-            __import__("asyncio").run(call_remote_tool(f"{url}/err", "search", {}, 5000))
+            asyncio.run(call_remote_tool(f"{url}/err", "search", {}, 5000))
     finally:
         server.shutdown()
 
@@ -83,7 +84,7 @@ def test_call_remote_tool_raises_rpc_error():
     server, url = make_server({"/rpcerr": INIT_RESULT + body})
     try:
         with pytest.raises(RemoteRpcError, match="no such tool"):
-            __import__("asyncio").run(call_remote_tool(f"{url}/rpcerr", "search", {}, 5000))
+            asyncio.run(call_remote_tool(f"{url}/rpcerr", "search", {}, 5000))
     finally:
         server.shutdown()
 
@@ -92,6 +93,6 @@ def test_call_remote_tool_requires_session_id():
     server, url = make_server({"/no-session": INIT_RESULT})
     try:
         with pytest.raises(RemoteTransportError, match="mcp-session-id"):
-            __import__("asyncio").run(call_remote_tool(f"{url}/no-session", "search", {}, 5000))
+            asyncio.run(call_remote_tool(f"{url}/no-session", "search", {}, 5000))
     finally:
         server.shutdown()

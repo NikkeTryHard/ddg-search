@@ -1,8 +1,1 @@
-__all__ = [
-    "config",
-    "models",
-    "remote_mcp",
-    "router",
-    "server",
-    "state",
-]
+"""ddg-search: DuckDuckGo search MCP server with multi-backend routing."""

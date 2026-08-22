@@ -106,6 +106,7 @@ Environment variables, all optional:
 | `DDG_SEARCH_TIMEOUT_MS` | `60000` | Total budget across all backends per query |
 | `DDG_SEARCH_TIMEOUT_COOLDOWN_MS` | `90000` | Timeout penalty per backend |
 | `DDG_SEARCH_ERROR_COOLDOWN_MS` | `30000` | Error penalty per backend |
+| `DDG_SEARCH_PROBE_TIMEOUT_MS` | `3000` | Per-backend probe wait for `status` with `probe: true` |
 | `DDG_SEARCH_STATE_DIR` | `<repo>/state` | Router state directory |
 
 Backends live in [`src/ddg_search/config.py`](src/ddg_search/config.py). The
@@ -114,18 +115,24 @@ to match your own infrastructure.
 
 ## Behavior worth knowing
 
-- **Failover order** prefers healthy backends with the fewest recent attempts,
-  so traffic spreads instead of hammering one poor box.
-- **Cooldowns are per-backend and time-boxed.** A backend that timed out sits
-  out for 90s; a soft-failed one for 30s. Success clears the slate instantly.
-- **State survives restarts** in `state/router-state.json`. Delete it if you
-  want amnesia; the server recreates it.
-- **Empty is ambiguous.** DuckDuckGo serves empty pages to clients it does not
-  trust, so "no results" can mean either no matches or quiet bot-flagging.
-  The router treats it as failure and tries the next backend anyway.
-- **Rate limits are upstream.** Each duckduckgo-mcp-server instance enforces
-  its own 30 requests/minute; the router spreads load but will not lie about
-  capacity it does not have.
+- Failover prefers healthy backends with the fewest recent attempts, so
+  traffic spreads instead of hammering one poor box.
+- Cooldowns are per-backend and time-boxed: a timeout sits a backend out for
+  90s, a soft failure for 30s. One success clears the slate instantly.
+- State survives restarts in `state/router-state.json`. Delete it if you want
+  amnesia; the server recreates it on next boot.
+
+One quirk deserves its own paragraph. DuckDuckGo serves empty pages to
+clients it does not trust, so "no results" can mean either genuinely no
+matches or quiet bot-flagging — the router cannot tell those apart, and it
+does not pretend to. It treats empty as failure and tries the next backend;
+if every backend comes back empty you get a banner saying exactly how
+ambiguous that is.
+
+Last thing: the 30 requests/minute ceiling is enforced by each
+duckduckgo-mcp-server instance, not here. The router spreads load across
+backends, but it will not lie about capacity the fleet does not have.
+
 
 ## Running your own relays
 
@@ -160,7 +167,7 @@ print(asyncio.run(SearchRouter().search('crawl4ai', 3, '', 'auto', None, None, N
 
 ## See also
 
-- [fast-webfetch-mcp](../../fast-webfetch-mcp) — the other half: opens the URLs
+- [fast-webfetch-mcp](../fast-webfetch-mcp) — the other half: opens the URLs
   these searches find, through a local Crawl4AI browser
 - [Model Context Protocol](https://modelcontextprotocol.io) — what "MCP" means
 - [duckduckgo-mcp-server](https://pypi.org/project/duckduckgo-mcp-server/) —

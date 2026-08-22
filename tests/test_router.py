@@ -72,7 +72,7 @@ def test_auto_order_prefers_healthy_then_least_used():
     healthy = next(b for b in BACKENDS if b.id == "local")
     cooling = next(b for b in BACKENDS if b.id == "relay-b")
     router.state.entry(cooling).cooldown_until = "9999-01-01T00:00:00+00:00"
-    ordered = router.auto_order([cooling, healthy], "search")
+    ordered = router.auto_order([cooling, healthy])
     assert ordered[0] is healthy and ordered[1] is cooling
 
 

@@ -121,14 +121,11 @@ class SearchRouter:
                 resolved.append(backend)
         return resolved
 
-    def _now_ts(self) -> float:
-        return datetime.now(timezone.utc).timestamp()
-
     def _is_cooling(self, backend: BackendConfig) -> bool:
         cooldown_until = self.state.entry(backend).cooldown_until
-        return bool(cooldown_until and datetime.fromisoformat(cooldown_until).timestamp() > self._now_ts())
+        return bool(cooldown_until and datetime.fromisoformat(cooldown_until).timestamp() > time.time())
 
-    def auto_order(self, backends: list[BackendConfig], kind: str) -> list[BackendConfig]:
+    def auto_order(self, backends: list[BackendConfig]) -> list[BackendConfig]:
         self.state.refresh_usage()
         return sorted(
             backends,
@@ -139,25 +136,21 @@ class SearchRouter:
             ),
         )
 
-    def available_backends(self, backends: list[BackendConfig], route_mode: str, kind: str) -> list[BackendConfig]:
-        ordered = backends if route_mode == "manual" else self.auto_order(backends, kind)
-        if route_mode == "manual":
-            return ordered
-        return [backend for backend in ordered if not self._is_cooling(backend)] + [
-            backend for backend in ordered if self._is_cooling(backend)
-        ]
+    def available_backends(self, backends: list[BackendConfig], route_mode: str) -> list[BackendConfig]:
+        # auto_order already sinks cooling backends, so no extra partition here.
+        return backends if route_mode == "manual" else self.auto_order(backends)
 
-    def mark_attempt(self, backend: BackendConfig, kind: str) -> None:
+    def mark_attempt(self, backend: BackendConfig) -> None:
         entry = self.state.entry(backend)
         current_iso = now_iso()
-        current_ts = self._now_ts()
+        current_ts = time.time()
         entry.last_used_at = current_iso
         entry.last_search_started_at = current_iso
         entry.search_timestamps.append(current_ts)
         entry.search_timestamps = [ts for ts in entry.search_timestamps if current_ts - ts < 60.0]
         self.state.save()
 
-    def mark_success(self, backend: BackendConfig, kind: str) -> None:
+    def mark_success(self, backend: BackendConfig) -> None:
         entry = self.state.entry(backend)
         current_iso = now_iso()
         entry.last_result_at = current_iso
@@ -173,9 +166,7 @@ class SearchRouter:
         entry.last_result_at = current_iso
         entry.last_status = status  # type: ignore[assignment]
         entry.last_error = error
-        entry.cooldown_until = datetime.fromtimestamp(
-            self._now_ts() + (cooldown_ms / 1000.0), tz=timezone.utc
-        ).isoformat()
+        entry.cooldown_until = datetime.fromtimestamp(time.time() + (cooldown_ms / 1000.0), tz=timezone.utc).isoformat()
         entry.last_search_finished_at = current_iso
         self.state.save()
 
@@ -266,7 +257,7 @@ class SearchRouter:
         ctx: Context | None,
     ) -> str:
         candidates = self.resolve_targets(target, targets)
-        ordered = self.available_backends(candidates, route_mode, "search")
+        ordered = self.available_backends(candidates, route_mode)
         attempt_lines: list[str] = []
         attempt_kinds: list[str] = []
         deadline = time.monotonic() + (SEARCH_TIMEOUT_MS / 1000.0)
@@ -277,7 +268,7 @@ class SearchRouter:
             if remaining <= 0:
                 deadline_hit = True
                 break
-            self.mark_attempt(backend, "search")
+            self.mark_attempt(backend)
             try:
                 if backend.kind == "local":
                     result = await asyncio.wait_for(
@@ -300,7 +291,7 @@ class SearchRouter:
                         return f"No usable result from requested backend.\nAttempts:\n{attempt_lines[-1]}"
                     continue
 
-                self.mark_success(backend, "search")
+                self.mark_success(backend)
                 trail = "\n".join(attempt_lines)
                 prefix = f"via {backend.name}"
                 if trail:
