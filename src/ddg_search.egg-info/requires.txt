@@ -1,0 +1,3 @@
+duckduckgo-mcp-server[browser]==0.6.1
+httpx>=0.28.1
+mcp>=1.26.0

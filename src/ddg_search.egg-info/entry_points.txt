@@ -1,0 +1,3 @@
+[console_scripts]
+ddg = ddg_search.server:main
+ddg-search = ddg_search.server:main

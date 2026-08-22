@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: ddg-search
+Version: 0.2.0
+Summary: ddg-search MCP: DuckDuckGo discovery with multi-backend routing
+Requires-Python: >=3.10
+Requires-Dist: duckduckgo-mcp-server[browser]==0.6.1
+Requires-Dist: httpx>=0.28.1
+Requires-Dist: mcp>=1.26.0

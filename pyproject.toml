@@ -1,0 +1,20 @@
+[project]
+name = "ddg-search"
+version = "0.2.0"
+description = "ddg-search MCP: DuckDuckGo discovery with multi-backend routing"
+requires-python = ">=3.10"
+dependencies = [
+  "duckduckgo-mcp-server[browser]==0.6.1",
+  "httpx>=0.28.1",
+  "mcp>=1.26.0"
+]
+
+[project.scripts]
+ddg-search = "ddg_search.server:main"
+ddg = "ddg_search.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
