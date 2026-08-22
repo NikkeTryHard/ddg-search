@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-
-from mcp.server.fastmcp import FastMCP, Context
-from pydantic import Field
 from typing import Annotated
 
-from .router import SearchRouter
+from mcp.server.fastmcp import Context, FastMCP
+from pydantic import Field
 
+from .router import SearchRouter
 
 mcp = FastMCP("ddg-search")
 router = SearchRouter()

@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
-import time
-import os
 import asyncio
+import os
+import re
+import time
+from datetime import datetime, timezone
+from typing import cast
 
 from duckduckgo_mcp_server.server import DuckDuckGoSearcher, SafeSearchMode
+from mcp.server.fastmcp import Context
 
-from .config import BACKENDS, ERROR_COOLDOWN_MS, PROBE_TIMEOUT_MS, SEARCH_LIMIT_PER_MIN, SEARCH_TIMEOUT_MS, TIMEOUT_COOLDOWN_MS
-from .models import AttemptResult, BackendConfig
+from .config import (
+    BACKENDS,
+    ERROR_COOLDOWN_MS,
+    PROBE_TIMEOUT_MS,
+    SEARCH_LIMIT_PER_MIN,
+    SEARCH_TIMEOUT_MS,
+    TIMEOUT_COOLDOWN_MS,
+)
+from .models import BackendConfig
 from .remote_mcp import RemoteRpcError, RemoteToolError, RemoteTransportError, call_remote_tool
 from .state import SearchState, now_iso
 
@@ -22,9 +31,7 @@ class NullContext:
         return None
 
 
-EMPTY_RESULTS_PREFIX = (
-    "No results were found for your search query"
-)
+EMPTY_RESULTS_PREFIX = "No results were found for your search query"
 
 
 def format_results_compact(results: list) -> str:
@@ -34,8 +41,7 @@ def format_results_compact(results: list) -> str:
     failure classifier matches on it."""
     if not results:
         return (
-            f"{EMPTY_RESULTS_PREFIX}. This could be due to DuckDuckGo's bot detection "
-            "or the query returned no matches."
+            f"{EMPTY_RESULTS_PREFIX}. This could be due to DuckDuckGo's bot detection or the query returned no matches."
         )
     lines = [f"{len(results)} results:"]
     for result in results:
@@ -56,7 +62,7 @@ def compact_remote_text(text: str) -> str:
     lines = text.splitlines()
     if not lines or not _REMOTE_HEADER_RE.match(lines[0].strip()):
         return text
-    out: list[str] = [f"{lines[0].strip()[len('Found '):-len(' search results:')]} results:"]
+    out: list[str] = [f"{lines[0].strip()[len('Found ') : -len(' search results:')]} results:"]
     for line in lines[1:]:
         stripped = line.strip()
         if not stripped:
@@ -167,26 +173,27 @@ class SearchRouter:
         entry.last_result_at = current_iso
         entry.last_status = status  # type: ignore[assignment]
         entry.last_error = error
-        entry.cooldown_until = datetime.fromtimestamp(self._now_ts() + (cooldown_ms / 1000.0), tz=timezone.utc).isoformat()
+        entry.cooldown_until = datetime.fromtimestamp(
+            self._now_ts() + (cooldown_ms / 1000.0), tz=timezone.utc
+        ).isoformat()
         entry.last_search_finished_at = current_iso
         self.state.save()
 
-    async def _search_local(self, backend: BackendConfig, query: str, max_results: int, region: str, ctx) -> AttemptResult:
+    async def _search_local(self, query: str, max_results: int, region: str, ctx: Context | None) -> str:
         effective_ctx = ctx or NullContext()
         results = await asyncio.wait_for(
-            self.local_searcher.search(query, effective_ctx, max_results, region),
+            # The upstream searcher only calls ctx.info/ctx.error for logging;
+            # NullContext satisfies that duck-type but not the concrete class.
+            self.local_searcher.search(query, cast("Context", effective_ctx), max_results, region),
             timeout=SEARCH_TIMEOUT_MS / 1000.0,
         )
-        return AttemptResult(backend=backend, ok=True, text=format_results_compact(results), status="ok")
+        return format_results_compact(results)
 
-    async def _search_remote(self, backend: BackendConfig, query: str, max_results: int, region: str) -> AttemptResult:
+    async def _search_remote(self, url: str, query: str, max_results: int, region: str) -> str:
         result = await call_remote_tool(
-            backend.url or "",
-            "search",
-            {"query": query, "max_results": max_results, "region": region},
-            SEARCH_TIMEOUT_MS,
+            url, "search", {"query": query, "max_results": max_results, "region": region}, SEARCH_TIMEOUT_MS
         )
-        return AttemptResult(backend=backend, ok=True, text=compact_remote_text(result.text), status="ok")
+        return compact_remote_text(result.text)
 
     def _result_failure(self, text: str) -> tuple[str, str] | None:
         """Return (kind, detail) for non-success tool bodies, else None."""
@@ -220,7 +227,8 @@ class SearchRouter:
         return (
             "error",
             "local",
-            f"local {type(exc).__name__} while targeting this backend (do not assume the remote host lacks packages): {exc}",
+            f"local {type(exc).__name__} while targeting this backend "
+            f"(do not assume the remote host lacks packages): {exc}",
             ERROR_COOLDOWN_MS,
         )
 
@@ -255,7 +263,7 @@ class SearchRouter:
         route_mode: str,
         target: str | None,
         targets: list[str] | None,
-        ctx,
+        ctx: Context | None,
     ) -> str:
         candidates = self.resolve_targets(target, targets)
         ordered = self.available_backends(candidates, route_mode, "search")
@@ -273,16 +281,16 @@ class SearchRouter:
             try:
                 if backend.kind == "local":
                     result = await asyncio.wait_for(
-                        self._search_local(backend, query, max_results, region, ctx),
+                        self._search_local(query, max_results, region, ctx),
                         timeout=remaining,
                     )
                 else:
                     result = await asyncio.wait_for(
-                        self._search_remote(backend, query, max_results, region),
+                        self._search_remote(backend.url or "", query, max_results, region),
                         timeout=remaining,
                     )
 
-                bad = self._result_failure(result.text)
+                bad = self._result_failure(result)
                 if bad:
                     kind, detail = bad
                     self.mark_failure(backend, "error", detail, ERROR_COOLDOWN_MS)
@@ -297,7 +305,7 @@ class SearchRouter:
                 prefix = f"via {backend.name}"
                 if trail:
                     prefix += f"\nPrior attempts:\n{trail}"
-                return f"{prefix}\n\n{result.text}".strip()
+                return f"{prefix}\n\n{result}".strip()
             except Exception as exc:
                 status, kind, detail, cooldown = self._classify_exception(exc)
                 self.mark_failure(backend, status, detail, cooldown)
@@ -351,10 +359,13 @@ class SearchRouter:
                 await self.probe(backend)
         self.state.refresh_usage()
         lines = [
-            "ddg-search router: auto tries backends sequentially, preferring non-cooling backends with lowest recent attempt count; manual uses target order.",
-            f"Search budget: {SEARCH_TIMEOUT_MS}ms total across backends. State: package-local under ~/.local/share/mcp/ddg-search/state.",
+            "ddg-search router: auto tries backends sequentially, preferring non-cooling backends "
+            "with lowest recent attempt count; manual uses target order.",
+            f"Search budget: {SEARCH_TIMEOUT_MS}ms total across backends. "
+            "State: package-local under ~/.local/share/mcp/ddg-search/state.",
             f"Observed search attempts in this process only. Each backend package enforces {SEARCH_LIMIT_PER_MIN}/min.",
-            "[empty] is ambiguous upstream output: genuine zero matches, bot-empty, parse-empty, and backend-swallowed request errors are indistinguishable.",
+            "[empty] is ambiguous upstream output: genuine zero matches, bot-empty, parse-empty, "
+            "and backend-swallowed request errors are indistinguishable.",
             "",
             "| name | ip | online | search_obs | last_used | last_result | status | cooldown_until | route |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",

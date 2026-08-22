@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextlib
 import json
 import time
+from dataclasses import dataclass
 
 import httpx
 
@@ -46,32 +47,32 @@ class RemoteRpcError(RuntimeError):
         super().__init__(text)
 
 
-def _parse_sse_messages(text: str) -> list[dict]:
-    messages: list[dict] = []
+def _append_sse_payload(messages: list[dict[str, object]], data_lines: list[str]) -> None:
+    if not data_lines:
+        return
+    payload = "\n".join(data_lines)
+    with contextlib.suppress(json.JSONDecodeError):
+        decoded = json.loads(payload)
+        if isinstance(decoded, dict):
+            messages.append(decoded)
+
+
+def _parse_sse_messages(text: str) -> list[dict[str, object]]:
+    """Collect JSON objects from SSE 'data:' frames; junk frames are ignored."""
+    messages: list[dict[str, object]] = []
     data_lines: list[str] = []
     for line in text.splitlines():
         line = line.rstrip("\r")
         if line.startswith("data:"):
             data_lines.append(line[5:].lstrip())
-            continue
-        if line == "":
-            if data_lines:
-                payload = "\n".join(data_lines)
-                try:
-                    messages.append(json.loads(payload))
-                except json.JSONDecodeError:
-                    pass
-                data_lines = []
-    if data_lines:
-        payload = "\n".join(data_lines)
-        try:
-            messages.append(json.loads(payload))
-        except json.JSONDecodeError:
-            pass
+        elif line == "":
+            _append_sse_payload(messages, data_lines)
+            data_lines = []
+    _append_sse_payload(messages, data_lines)
     return messages
 
 
-async def _post(url: str, session_id: str | None, payload: dict, timeout_s: float) -> httpx.Response:
+async def _post(url: str, session_id: str | None, payload: dict[str, object], timeout_s: float) -> httpx.Response:
     headers = {
         "content-type": "application/json",
         "accept": "application/json, text/event-stream",
@@ -89,7 +90,7 @@ def _transport_from_exc(stage: str, exc: Exception, *, http_completed: bool = Fa
     return RemoteTransportError(stage, detail, http_completed=http_completed)
 
 
-async def call_remote_tool(url: str, tool_name: str, arguments: dict, timeout_ms: int) -> RemoteToolResult:
+async def call_remote_tool(url: str, tool_name: str, arguments: dict[str, object], timeout_ms: int) -> RemoteToolResult:
     if not url:
         raise RemoteTransportError("config", "remote backend URL is empty", http_completed=False)
 
@@ -170,13 +171,17 @@ async def call_remote_tool(url: str, tool_name: str, arguments: dict, timeout_ms
 
     messages = _parse_sse_messages(response.text)
     for message in messages:
-        if message.get("id") == 2 and "result" in message:
-            content = message["result"].get("content", [])
-            text = "\n\n".join(item.get("text", "") for item in content if item.get("type") == "text").strip()
-            is_error = bool(message["result"].get("isError"))
-            if is_error and text:
+        if message.get("id") != 2:
+            continue
+        result = message.get("result")
+        if isinstance(result, dict):
+            content = result.get("content", [])
+            parts = [item for item in content if isinstance(item, dict) and item.get("type") == "text"]
+            text = "\n\n".join(str(item.get("text", "")) for item in parts).strip()
+            if result.get("isError") and text:
                 raise RemoteToolError(f"remote tool isError: {text}")
             return RemoteToolResult(text=text)
-        if message.get("id") == 2 and "error" in message:
-            raise RemoteRpcError(message["error"])
+        error = message.get("error")
+        if error is not None:
+            raise RemoteRpcError(error)
     raise RemoteTransportError("tools/call", "remote returned no tool result", http_completed=True)

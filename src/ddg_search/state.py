@@ -47,7 +47,9 @@ class SearchState:
 
     def save(self) -> None:
         ensure_state_dir()
-        STATE_FILE.write_text(json.dumps({"backends": {key: asdict(value) for key, value in self.backends.items()}}, indent=2))
+        STATE_FILE.write_text(
+            json.dumps({"backends": {key: asdict(value) for key, value in self.backends.items()}}, indent=2)
+        )
 
     def refresh_usage(self) -> None:
         now_ts = datetime.now(timezone.utc).timestamp()

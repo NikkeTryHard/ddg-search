@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 BackendStatus = Literal["unknown", "ok", "timeout", "error", "probe-ok", "probe-failed"]
 
 
@@ -30,12 +29,3 @@ class BackendState:
     last_search_finished_at: str | None = None
     last_probe_at: str | None = None
     last_probe_ok: bool | None = None
-
-
-@dataclass
-class AttemptResult:
-    backend: BackendConfig
-    ok: bool
-    text: str
-    status: str
-    error: str | None = None
