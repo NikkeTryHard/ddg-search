@@ -14,7 +14,7 @@ def _env(name: str, default: str) -> str:
 # All runtime state lives under the install tree default:
 # ~/.local/share/mcp/ddg-search/state
 # Override only with DDG_SEARCH_STATE_DIR (no separate config/ path).
-SEARCH_TIMEOUT_MS = int(_env("DDG_SEARCH_TIMEOUT_MS", "60000"))
+SEARCH_TIMEOUT_MS = int(_env("DDG_SEARCH_TIMEOUT_MS", "25000"))
 PROBE_TIMEOUT_MS = int(_env("DDG_SEARCH_PROBE_TIMEOUT_MS", "3000"))
 TIMEOUT_COOLDOWN_MS = int(_env("DDG_SEARCH_TIMEOUT_COOLDOWN_MS", "90000"))
 ERROR_COOLDOWN_MS = int(_env("DDG_SEARCH_ERROR_COOLDOWN_MS", "30000"))

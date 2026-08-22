@@ -4,11 +4,14 @@ import asyncio
 import os
 import re
 import time
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import cast
 
 from duckduckgo_mcp_server.server import DuckDuckGoSearcher, SafeSearchMode
 from mcp.server.fastmcp import Context
+
+from ddg_search.diagnostics import SERIOUS_KINDS, write_failure_log
 
 from .config import (
     BACKENDS,
@@ -309,7 +312,25 @@ class SearchRouter:
 
         banner = self._failure_banner(attempt_kinds, deadline_hit)
         body = "\n".join(attempt_lines) if attempt_lines else "- none"
-        return f"{banner}\nAttempts:\n{body}"
+        out = f"{banner}\nAttempts:\n{body}"
+        if any(kind in SERIOUS_KINDS for kind in attempt_kinds):
+            path = write_failure_log(
+                {
+                    "kind": next(k for k in attempt_kinds if k in SERIOUS_KINDS),
+                    "query": query,
+                    "max_results": max_results,
+                    "region": region,
+                    "route_mode": route_mode,
+                    "target": target,
+                    "targets": targets,
+                    "deadline_hit": deadline_hit,
+                    "attempts": attempt_lines,
+                    "backends": {b.id: asdict(self.state.entry(b)) for b in ordered},
+                }
+            )
+            if path:
+                out += f"\nlog: {path}"
+        return out
 
     async def probe(self, backend: BackendConfig) -> None:
         entry = self.state.entry(backend)

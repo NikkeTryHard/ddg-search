@@ -87,7 +87,23 @@ under `Attempts:` with a tag telling you *where* it broke:
 | `[empty]` | DuckDuckGo returned zero matches — genuine no-results or bot-empty, indistinguishable from here |
 | `[local]` / `[local-transport]` | This machine's client failed. Do not blame the remote hosts |
 | `[remote-tool-error]` / `[remote-rpc]` | A remote answered badly |
-| `[timeout]` | The 60s budget ran out while waiting |
+| `[timeout]` | The 25s budget ran out while waiting |
+
+### When things break, you get a log path
+
+The router distinguishes "the internet is being the internet" from "this tool
+is actually broken". Timeouts and empty result sets just get their `[tag]`.
+But when an attempt fails in a way that means *our* side broke — local
+transport errors, remote backends answering badly — the response ends with:
+
+```
+log: /path/to/ddg-search/logs/20260822T090206-remote-tool-error.json
+```
+
+That file holds everything needed to replay and diagnose: the exact query and
+arguments, every attempt with its failure detail, and a snapshot of per-backend
+state at the time. Point `DDG_SEARCH_LOGS_DIR` somewhere else if you want;
+logs are never written for timeouts or empty results.
 
 ### `status`
 
@@ -103,7 +119,7 @@ Environment variables, all optional:
 |---|---|---|
 | `DDG_SAFE_SEARCH` | `OFF` | `STRICT` / `MODERATE` / `OFF` |
 | `DDG_SEARCH_BACKEND` | `auto` | Local transport: `httpx`, `curl`, or `auto` (curl_cffi Chrome TLS fallback) |
-| `DDG_SEARCH_TIMEOUT_MS` | `60000` | Total budget across all backends per query |
+| `DDG_SEARCH_TIMEOUT_MS` | `25000` | Total budget across all backends per query |
 | `DDG_SEARCH_TIMEOUT_COOLDOWN_MS` | `90000` | Timeout penalty per backend |
 | `DDG_SEARCH_ERROR_COOLDOWN_MS` | `30000` | Error penalty per backend |
 | `DDG_SEARCH_PROBE_TIMEOUT_MS` | `3000` | Per-backend probe wait for `status` with `probe: true` |
